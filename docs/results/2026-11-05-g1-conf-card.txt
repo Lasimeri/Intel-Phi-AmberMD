@@ -1,0 +1,26 @@
+PASS namelist
+PASS format-write
+PASS format-read
+PASS inpcrd-format
+PASS stream-io
+PASS allocatable
+PASS derived-type
+PASS complex-to-c
+PASS complex-from-c
+PASS array-to-c
+PASS integer8
+PASS strings
+HEX sqrt2 3FF6A09E667F3BCD
+HEX exp1 4005BF0A8B145769
+HEX log10 40026BB1BBB55516
+HEX erfc05 3FDEB02147CE245C
+HEX erfc23 3F52BAD48659485E
+HEX sin1 3FEAED548F090CEE
+HEX cos1 3FE14A280FB5068C
+HEX atan2 40056C6E7397F5AE
+HEX pow 400B1C0C46DCB4EA
+HEX dsum 40282E27A22F3FB0
+HEX loopsum 40282E27A22F3FB0
+PASS math
+RESULT all passed
+exit 0

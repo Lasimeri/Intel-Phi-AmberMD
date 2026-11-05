@@ -2,7 +2,7 @@
 
 State on 2026-11-05 13:10: G0 passed on the host (results/2026-11-05-g0-host.md). One C probe has
 run on the card (G3 team fork-join, results/2026-11-05-g3-team.md). sander has not been built for
-the card: G1 (Flang) is building. Figures below are measurements where a results file is cited,
+the card: G1 passed (Flang runs Fortran on the card), G2 is next. Figures below are measurements where a results file is cited,
 otherwise cited measurements by others or arithmetic, and are labelled. Source tree facts were
 read from the checksummed tarball.
 
@@ -158,7 +158,7 @@ Build serial `sander` with gfortran on the host from the pinned tarball, minimal
 - Measure: ns/day on the Ryzen 5800X for the explicit case and a 50,500-atom PrP box. This is the
   number the card must be compared with, interleaved and repeated.
 
-### G1: Fortran for KNC
+### G1: Fortran for KNC: gate PASSED 2026-11-05, see results/2026-11-05-g1-fortran-on-card.md
 Add `flang;mlir` to a build of the patched LLVM 23.1.1 on `/`. RAM use of this build is unmeasured:
 start at 8 jobs, log MemAvailable, raise toward 14 only if it stays clear, since host RAM plus swap
 above 90 % kills the session. Build flang-rt for `x86_64-unknown-linux-musl` with `-march=knc`. Patch

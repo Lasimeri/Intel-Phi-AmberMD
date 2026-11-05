@@ -10,7 +10,8 @@ First target: one Xeon Phi 7120A. Later target: a rack of 3120A cards.
 **Status (2026-11-05):** G0 passed: host sander passes the constant-pH tests and sets the bar,
 4.659 ns/day on a 49,910-atom PrP box (8 ranks, Ryzen 5800X). G3 probe ran on the 7120A: a
 120-thread fork-join costs 8.37 us with an 8-ary gather tree, 1.41 ms with pthread barriers.
-sander does not run on the card yet: G1, a Fortran compiler for KNC (Flang), is building.
+G1 passed: Flang builds Fortran for the card; 12 of 12 conformance checks pass on the 7120A.
+sander does not run on the card yet: that is G2.
 Results: [docs/results](docs/results).
 Read [docs/plan.md](docs/plan.md).
 
