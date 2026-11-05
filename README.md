@@ -14,6 +14,8 @@ G1 passed: Flang builds Fortran for the card; 12 of 12 conformance checks pass o
 sander does not run on the card yet: that is G2.
 Monitoring and view: phitop shows MD runs on the card (two `md` lines, docs/md-stats.md), and
 `amview` draws them on the host's RTX 3090 Ti at 1080p60 (docs/md-frames.md), tested with an argon run.
+`amview --file` plays proteins and drug complexes from disk: mdCATH unfolding trajectories, folding runs,
+PDB/mmCIF/SDF structures (docs/datasets.md, fetched by scripts/fetch-proteins.sh).
 Results: [docs/results](docs/results).
 Read [docs/plan.md](docs/plan.md).
 
