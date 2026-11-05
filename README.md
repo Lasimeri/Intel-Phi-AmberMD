@@ -12,6 +12,8 @@ First target: one Xeon Phi 7120A. Later target: a rack of 3120A cards.
 120-thread fork-join costs 8.37 us with an 8-ary gather tree, 1.41 ms with pthread barriers.
 G1 passed: Flang builds Fortran for the card; 12 of 12 conformance checks pass on the 7120A.
 sander does not run on the card yet: that is G2.
+Monitoring and view: phitop shows MD runs on the card (two `md` lines, docs/md-stats.md), and
+`amview` draws them on the host's RTX 3090 Ti at 1080p60 (docs/md-frames.md), tested with an argon run.
 Results: [docs/results](docs/results).
 Read [docs/plan.md](docs/plan.md).
 

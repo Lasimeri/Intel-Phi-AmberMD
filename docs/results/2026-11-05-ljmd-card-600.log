@@ -1,0 +1,8 @@
+ljmd: 48668 atoms, 120 threads, box  132.126 A, 15^3 cells, 600 steps of 4 fs
+step    100  Epot    -66445.768  Etot    -54297.215  T  83.744  steps/s    3.047  team busy  80.5%
+step    200  Epot    -64862.727  Etot    -51346.033  T  93.176  steps/s    3.133  team busy  82.7%
+step    300  Epot    -64648.807  Etot    -50971.731  T  94.281  steps/s    3.166  team busy  83.5%
+step    400  Epot    -64534.653  Etot    -50856.587  T  94.288  steps/s    3.183  team busy  83.9%
+step    500  Epot    -64551.309  Etot    -50845.856  T  94.477  steps/s    3.201  team busy  84.4%
+step    600  Epot    -64330.922  Etot    -50670.162  T  94.169  steps/s    3.217  team busy  84.8%
+ljmd: done,    186.508 s

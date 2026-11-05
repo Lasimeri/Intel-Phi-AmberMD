@@ -1,0 +1,42 @@
+md    ljmd argon  step 11 of 600   3.1 steps/s  1.09 ns/day  343.922 ms/step  left 0:03:22  running
+      E -63607.108 kcal/mol  T 92.35 K   48668 atoms, 120 threads, team busy 76.4%
+md    ljmd argon  step 38 of 600   3.2 steps/s  1.11 ns/day  331.336 ms/step  left 0:03:06  running
+      E -61861.861 kcal/mol  T 70.54 K   48668 atoms, 120 threads, team busy 79.1%
+md    ljmd argon  step 66 of 600   3.2 steps/s  1.11 ns/day  321.255 ms/step  left 0:02:51  running
+      E -57178.308 kcal/mol  T 70.59 K   48668 atoms, 120 threads, team busy 81.6%
+md    ljmd argon  step 95 of 600   3.2 steps/s  1.11 ns/day  315.284 ms/step  left 0:02:39  running
+      E -54608.328 kcal/mol  T 83.40 K   48668 atoms, 120 threads, team busy 83.3%
+md    ljmd argon  step 124 of 600   3.4 steps/s  1.19 ns/day  311.807 ms/step  left 0:02:28  running
+      E -52975.177 kcal/mol  T 86.44 K   48668 atoms, 120 threads, team busy 84.7%
+md    ljmd argon  step 153 of 600   2.9 steps/s  1.02 ns/day  311.892 ms/step  left 0:02:19  running
+      E -51985.629 kcal/mol  T 90.37 K   48668 atoms, 120 threads, team busy 85.0%
+md    ljmd argon  step 182 of 600   2.9 steps/s  1.01 ns/day  309.258 ms/step  left 0:02:09  running
+      E -51499.910 kcal/mol  T 92.56 K   48668 atoms, 120 threads, team busy 85.0%
+md    ljmd argon  step 212 of 600   3.4 steps/s  1.19 ns/day  308.459 ms/step  left 0:01:59  running
+      E -51267.041 kcal/mol  T 93.37 K   48668 atoms, 120 threads, team busy 85.4%
+md    ljmd argon  step 241 of 600   2.9 steps/s  1.01 ns/day  310.260 ms/step  left 0:01:51  running
+      E -51135.202 kcal/mol  T 93.76 K   48668 atoms, 120 threads, team busy 85.2%
+md    ljmd argon  step 271 of 600   3.4 steps/s  1.19 ns/day  309.192 ms/step  left 0:01:41  running
+      E -51033.027 kcal/mol  T 93.81 K   48668 atoms, 120 threads, team busy 85.0%
+md    ljmd argon  step 300 of 600   3.4 steps/s  1.19 ns/day  310.339 ms/step  left 0:01:33  running
+      E -50971.731 kcal/mol  T 94.28 K   48668 atoms, 120 threads, team busy 84.6%
+md    ljmd argon  step 329 of 600   3.4 steps/s  1.19 ns/day  311.160 ms/step  left 0:01:24  running
+      E -50971.839 kcal/mol  T 94.33 K   48668 atoms, 120 threads, team busy 84.6%
+md    ljmd argon  step 358 of 600   2.9 steps/s  1.02 ns/day  312.252 ms/step  left 0:01:15  running
+      E -50934.441 kcal/mol  T 94.13 K   48668 atoms, 120 threads, team busy 85.0%
+md    ljmd argon  step 388 of 600   3.4 steps/s  1.19 ns/day  308.848 ms/step  left 0:01:05  running
+      E -50870.584 kcal/mol  T 94.11 K   48668 atoms, 120 threads, team busy 85.1%
+md    ljmd argon  step 418 of 600   3.4 steps/s  1.19 ns/day  307.896 ms/step  left 0:00:56  running
+      E -50863.546 kcal/mol  T 94.59 K   48668 atoms, 120 threads, team busy 85.2%
+md    ljmd argon  step 448 of 600   2.9 steps/s  1.02 ns/day  305.601 ms/step  left 0:00:46  running
+      E -50875.094 kcal/mol  T 94.24 K   48668 atoms, 120 threads, team busy 86.0%
+md    ljmd argon  step 478 of 600   2.9 steps/s  1.01 ns/day  304.951 ms/step  left 0:00:37  running
+      E -50842.852 kcal/mol  T 94.36 K   48668 atoms, 120 threads, team busy 86.9%
+md    ljmd argon  step 509 of 600   3.4 steps/s  1.19 ns/day  302.673 ms/step  left 0:00:27  running
+      E -50848.147 kcal/mol  T 94.37 K   48668 atoms, 120 threads, team busy 86.8%
+md    ljmd argon  step 539 of 600   2.9 steps/s  1.01 ns/day  302.966 ms/step  left 0:00:18  running
+      E -50796.469 kcal/mol  T 94.02 K   48668 atoms, 120 threads, team busy 87.1%
+md    ljmd argon  step 570 of 600   3.4 steps/s  1.19 ns/day  301.133 ms/step  left 0:00:09  running
+      E -50747.116 kcal/mol  T 94.06 K   48668 atoms, 120 threads, team busy 87.3%
+md    ljmd argon  step 600 of 600   2.8 steps/s  0.98 ns/day  301.770 ms/step  left --  done
+      E -50670.162 kcal/mol  T 94.17 K   48668 atoms, 120 threads, team busy 87.1%
