@@ -1,0 +1,6 @@
+input/dl/
+build/
+out/
+logs/
+*.tar.bz2
+*.nc
