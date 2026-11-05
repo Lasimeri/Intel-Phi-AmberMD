@@ -11,6 +11,7 @@
  *
  * Usage: amview [--card N] [--seconds S] [--radius A] [--snap FILE]
  *        amview --file F [F ...] [--temp K] [--replica R] [--fps F] [--seconds S] [--snap FILE]
+ *        amview --file SOLUTE.pdb --follow TRAJ.mdcrd --natoms N   (a sander run as it writes)
  * Keys: mouse drag rotate, wheel zoom, o auto-rotation, q/Esc quit;
  *   file mode: space pause, [ ] speed, , . step, Home restart, c colour (structure / element /
  *   chain rainbow), h hydrogens, a atoms, b backbone tube, n p next/previous file,
@@ -39,6 +40,7 @@
 #define PERIOD_NS 16666667ll
 #define NQ 4
 #define TUBE_STEPS 8
+#define STICK_RADIUS 0.17f   /* Angstrom */
 
 typedef struct { float m[16]; } mat4;
 typedef struct { float x, y, z, r, cr, cg, cb, ca; } inst_t; /* one sphere: centre, radius, colour */
@@ -87,7 +89,7 @@ static const char *atom_fs =
     "#version 460 core\n"
     "layout(depth_greater) out float gl_FragDepth;\n"
     "in vec3 v_center; in vec3 v_pos; in vec3 v_col; in float v_r;\n"
-    "uniform mat4 proj;\n"
+    "uniform mat4 proj; uniform vec2 cue; /* depth cueing: view distance where fading starts, where it is full */\n"
     "out vec4 color;\n"
     "void main() {\n"
     "  vec3 d = normalize(v_pos);\n"
@@ -100,7 +102,9 @@ static const char *atom_fs =
     "  float diff = max(dot(n, l), 0.0);\n"
     "  float spec = pow(max(dot(n, normalize(l - d)), 0.0), 48.0);\n"
     "  float rim = pow(1.0 - max(dot(n, -d), 0.0), 3.0);\n"
-    "  color = vec4(v_col * (0.22 + 0.78 * diff) + vec3(0.35) * spec + v_col * 0.25 * rim, 1.0);\n"
+    "  float fade = clamp((-hit.z - cue.x) / max(cue.y - cue.x, 1e-3), 0.0, 1.0);\n"
+    "  vec3 lit = v_col * (0.22 + 0.78 * diff) + vec3(0.35) * spec + v_col * 0.25 * rim;\n"
+    "  color = vec4(mix(lit, lit * 0.45, fade), 1.0);\n"
     "  vec4 clip = proj * vec4(hit, 1.0);\n"
     "  gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;\n"
     "}\n";
@@ -120,6 +124,63 @@ static const char *box_fs =
     "#version 460 core\n"
     "out vec4 color;\n"
     "void main() { color = vec4(0.55, 0.6, 0.7, 1.0); }\n";
+
+/* cylinders: bonds. Endpoints a and b, radius, two colours split at the middle, dashed flag.
+ * A view-space quad in front of the cylinder covers it; the fragment shader intersects the eye ray
+ * with the cylinder exactly and writes the true depth, like the sphere impostors. */
+typedef struct { float ax, ay, az, r, bx, by, bz, dash, car, cag, cab, pad0, cbr, cbg, cbb, pad1; } cyl_t;
+
+static const char *cyl_vs =
+    "#version 460 core\n"
+    "struct Cyl { vec4 ar; vec4 bd; vec4 ca; vec4 cb; };\n"
+    "layout(std430, binding = 1) readonly buffer Cyls { Cyl cyl[]; };\n"
+    "uniform mat4 view; uniform mat4 proj;\n"
+    "out vec3 v_a; out vec3 v_b; out vec3 v_pos; out float v_r; out float v_dash; out vec3 v_ca; out vec3 v_cb;\n"
+    "const vec2 corner[6] = vec2[](vec2(0,-1), vec2(1,-1), vec2(1,1), vec2(0,-1), vec2(1,1), vec2(0,1));\n"
+    "void main() {\n"
+    "  Cyl c = cyl[gl_InstanceID];\n"
+    "  vec3 a = (view * vec4(c.ar.xyz, 1.0)).xyz, b = (view * vec4(c.bd.xyz, 1.0)).xyz;\n"
+    "  float r = c.ar.w;\n"
+    "  vec2 e = b.xy - a.xy; float el = length(e);\n"
+    "  e = el > 1e-5 ? e / el : vec2(1.0, 0.0);\n"
+    "  vec2 n = vec2(-e.y, e.x);\n"
+    "  vec2 k = corner[gl_VertexID];\n"
+    "  vec2 xy = mix(a.xy - e * r, b.xy + e * r, k.x) + n * (k.y * r * 1.2);\n"
+    "  vec3 p = vec3(xy, max(a.z, b.z) + r);\n"
+    "  v_a = a; v_b = b; v_pos = p; v_r = r; v_dash = c.bd.w; v_ca = c.ca.rgb; v_cb = c.cb.rgb;\n"
+    "  gl_Position = proj * vec4(p, 1.0);\n"
+    "}\n";
+
+static const char *cyl_fs =
+    "#version 460 core\n"
+    "layout(depth_greater) out float gl_FragDepth;\n"
+    "in vec3 v_a; in vec3 v_b; in vec3 v_pos; in float v_r; in float v_dash; in vec3 v_ca; in vec3 v_cb;\n"
+    "uniform mat4 proj; uniform vec2 cue; /* depth cueing: view distance where fading starts, where it is full */\n"
+    "out vec4 color;\n"
+    "void main() {\n"
+    "  vec3 d = normalize(v_pos);\n"
+    "  vec3 w = v_b - v_a; float L = length(w); w /= L;\n"
+    "  vec3 X = d - dot(d, w) * w;\n"
+    "  vec3 Y = -v_a - dot(-v_a, w) * w;\n"
+    "  float A = dot(X, X), B = 2.0 * dot(X, Y), C = dot(Y, Y) - v_r * v_r;\n"
+    "  float disc = B * B - 4.0 * A * C;\n"
+    "  if (disc < 0.0 || A < 1e-9) discard;\n"
+    "  float t = (-B - sqrt(disc)) / (2.0 * A);\n"
+    "  vec3 hit = t * d;\n"
+    "  float s = dot(hit - v_a, w);\n"
+    "  if (s < 0.0 || s > L) discard;\n"
+    "  if (v_dash > 0.5 && mod(floor(s / L * 7.0), 2.0) > 0.5) discard;\n"
+    "  vec3 n = normalize(hit - v_a - s * w);\n"
+    "  vec3 col = s < 0.5 * L ? v_ca : v_cb;\n"
+    "  vec3 l = normalize(vec3(0.4, 0.6, 0.7));\n"
+    "  float diff = max(dot(n, l), 0.0);\n"
+    "  float spec = pow(max(dot(n, normalize(l - d)), 0.0), 48.0);\n"
+    "  float fade = clamp((-hit.z - cue.x) / max(cue.y - cue.x, 1e-3), 0.0, 1.0);\n"
+    "  vec3 lit = col * (0.22 + 0.78 * diff) + vec3(0.30) * spec;\n"
+    "  color = vec4(mix(lit, lit * 0.45, fade), 1.0);\n"
+    "  vec4 clip = proj * vec4(hit, 1.0);\n"
+    "  gl_FragDepth = clip.z / clip.w * 0.5 + 0.5;\n"
+    "}\n";
 
 static GLuint shader(GLenum kind, const char *src) {
     GLuint s = glCreateShader(kind);
@@ -229,6 +290,9 @@ static void on_scroll(GLFWwindow *w, double dx, double dy) {
 typedef struct {
     mol_t m;
     int *ca;            /* C-alpha atom of each residue, -1 when none */
+    int *bond, nbond;   /* ligand bonds: atom pairs, inferred from covalent radii or read from a mol2 */
+    char *order;        /* per bond: 1, 2, 3, or 4 for aromatic (mol2 "ar"); 1 when inferred */
+    int ligand_only;    /* no protein backbone: a drug on its own */
     float radius;       /* bounding radius of frame 0 about its centroid */
     int temps[8], ntemps, ti, rep;
 } scene_t;
@@ -270,6 +334,49 @@ static void ss_color(char s, float *c) {
     }
 }
 
+/* covalent radii (Cordero 2008), Angstrom */
+static float cov(const char *e) {
+    if (!e[1]) switch (e[0]) {
+        case 'H': return 0.31f; case 'C': return 0.76f; case 'N': return 0.71f; case 'O': return 0.66f;
+        case 'S': return 1.05f; case 'P': return 1.07f; case 'F': return 0.57f; default: break;
+        }
+    if (!strcmp(e, "CL")) return 1.02f;
+    return 1.2f;
+}
+
+/* bond orders from a mol2 of the same molecule, same atom order (antechamber writes the atoms in
+ * the order tleap keeps): each bond already found gets the mol2 order; bonds the mol2 lists that
+ * distance inference missed are added. */
+static const char *bonds_mol2;
+static void mol2_orders(scene_t *s, const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) { perror(path); return; }
+    char line[256];
+    int in = 0, matched = 0, added = 0;
+    while (fgets(line, sizeof line, f)) {
+        if (!strncmp(line, "@<TRIPOS>BOND", 13)) { in = 1; continue; }
+        if (line[0] == 0x40) { in = 0; continue; }
+        if (!in) continue;
+        int id, a, b;
+        char ty[8];
+        if (sscanf(line, "%d %d %d %7s", &id, &a, &b, ty) != 4) continue;
+        a--; b--;
+        if (a < 0 || b < 0 || a >= s->m.natoms || b >= s->m.natoms) continue;
+        char o = !strcmp(ty, "ar") ? 4 : (ty[0] >= 0x31 && ty[0] <= 0x33) ? (char)(ty[0] - 0x30) : 1;
+        int found = -1;
+        for (int k = 0; k < s->nbond; k++)
+            if ((s->bond[2 * k] == a && s->bond[2 * k + 1] == b) || (s->bond[2 * k] == b && s->bond[2 * k + 1] == a)) { found = k; break; }
+        if (found < 0) {
+            s->bond = realloc(s->bond, sizeof(int) * 2 * (size_t)(s->nbond + 1));
+            s->order = realloc(s->order, (size_t)(s->nbond + 1));
+            s->bond[2 * s->nbond] = a; s->bond[2 * s->nbond + 1] = b; found = s->nbond++; added++;
+        } else matched++;
+        s->order[found] = o;
+    }
+    fclose(f);
+    printf("amview: bond orders from %s: %d bonds matched, %d added\n", path, matched, added);
+}
+
 static int scene_load(scene_t *s, const char *path) {
     free(s->ca);
     s->ca = NULL;
@@ -280,6 +387,11 @@ static int scene_load(scene_t *s, const char *path) {
     for (int r = 0; r < s->m.nres; r++) s->ca[r] = -1;
     for (int i = 0; i < s->m.natoms; i++)
         if (!s->m.het[i] && !strcmp(s->m.name[i], "CA") && s->ca[s->m.res[i]] < 0) s->ca[s->m.res[i]] = i;
+    /* no protein backbone at all (a drug on its own, e.g. a tleap PDB with ATOM records): draw it as a ligand */
+    int nca = 0;
+    for (int r = 0; r < s->m.nres; r++) nca += s->ca[r] >= 0;
+    s->ligand_only = nca == 0;
+    if (nca == 0) for (int i = 0; i < s->m.natoms; i++) s->m.het[i] = 1;
     double cx = 0, cy = 0, cz = 0;
     for (int i = 0; i < s->m.natoms; i++) { cx += s->m.xyz[3 * i]; cy += s->m.xyz[3 * i + 1]; cz += s->m.xyz[3 * i + 2]; }
     cx /= s->m.natoms; cy /= s->m.natoms; cz /= s->m.natoms;
@@ -290,12 +402,33 @@ static int scene_load(scene_t *s, const char *path) {
         if (d > r2) r2 = d;
     }
     s->radius = sqrtf(r2) + 2.0f;
+    /* ligand bonds: pairs of ligand atoms in the same residue closer than 1.15 x the covalent radii sum */
+    free(s->bond);
+    s->bond = NULL; s->nbond = 0;
+    int cap = 0;
+    for (int i = 0; i < s->m.natoms; i++) {
+        if (!s->m.het[i]) continue;
+        for (int j = i + 1; j < s->m.natoms; j++) {
+            if (!s->m.het[j] || s->m.res[j] != s->m.res[i]) continue;
+            float dx = s->m.xyz[3 * i] - s->m.xyz[3 * j], dy = s->m.xyz[3 * i + 1] - s->m.xyz[3 * j + 1], dz = s->m.xyz[3 * i + 2] - s->m.xyz[3 * j + 2];
+            float lim = 1.15f * (cov(s->m.elem[i]) + cov(s->m.elem[j]));
+            if (dx * dx + dy * dy + dz * dz > lim * lim) continue;
+            if (s->nbond == cap) { cap = cap ? cap * 2 : 256; s->bond = realloc(s->bond, sizeof(int) * 2 * (size_t)cap); }
+            s->bond[2 * s->nbond] = i; s->bond[2 * s->nbond + 1] = j; s->nbond++;
+        }
+    }
+    free(s->order);
+    s->order = calloc((size_t)(s->nbond ? s->nbond : 1), 1);
+    for (int b = 0; b < s->nbond; b++) s->order[b] = 1;
+    if (bonds_mol2) mol2_orders(s, bonds_mol2);
+    if (s->ligand_only) { show_h = 1; dist_scale = 2.3f; } /* a lone drug: hydrogens on; with its 25 degree view this is 4.73 x its radius, the vertical fit needs 4.51 */
     printf("amview: loaded %s: %s, %d atoms, %d residues, %d frames\n", path, s->m.title, s->m.natoms, s->m.nres, s->m.nframes);
     return 0;
 }
 
 /* the spheres of the scene at a fractional frame */
-static int scene_build(const scene_t *s, double fpos, inst_t *out, int cap, int *ss_counts) {
+static float frame_radius; /* the drawn frame's extent about its centre, for the camera */
+static int scene_build(const scene_t *s, double fpos, inst_t *out, int cap, cyl_t *cout, int ccap, int *ncyl, int *ss_counts) {
     const mol_t *m = &s->m;
     int n = m->natoms, nf = m->nframes;
     int a = (int)fpos;
@@ -317,6 +450,7 @@ static int scene_build(const scene_t *s, double fpos, inst_t *out, int cap, int 
     ss_counts[0] = ss_counts[1] = 0;
     if (ss) for (int r = 0; r < m->nres; r++) { ss_counts[0] += ss[r] == 'H'; ss_counts[1] += ss[r] == 'E'; }
     int k = 0;
+    *ncyl = 0;
     float col[3];
 #define POS(i, d) (pa[3 * (i) + (d)] + t * (pb[3 * (i) + (d)] - pa[3 * (i) + (d)]) - (float)((d) == 0 ? cx : (d) == 1 ? cy : cz))
     for (int i = 0; i < n && k < cap; i++) {
@@ -324,11 +458,64 @@ static int scene_build(const scene_t *s, double fpos, inst_t *out, int cap, int 
         int hyd = m->elem[i][0] == 'H' && !m->elem[i][1];
         if (!lig && (!show_atoms || (hyd && !show_h))) continue;
         if (lig && hyd && !show_h) continue;
-        if (lig || mode == 1) elem_color(m->elem[i], lig, col);
+        if (lig || mode == 1) elem_color(m->elem[i], lig && !s->ligand_only, col);
         else if (mode == 0) ss_color(ss[m->res[i]], col);
         else ramp(m->nres > 1 ? (float)m->res[i] / (float)(m->nres - 1) : 0.5f, col);
-        float r = vdw(m->elem[i]) * (lig ? 0.42f : (show_tube ? 0.28f : 0.5f));
+        float r = vdw(m->elem[i]) * (lig ? 0.24f : (show_tube ? 0.28f : 0.5f)); /* ligands: ball and stick */
         out[k++] = (inst_t){POS(i, 0), POS(i, 1), POS(i, 2), r, col[0], col[1], col[2], 1};
+    }
+    /* ligand bonds as sticks: dense chains of small spheres, each half in its atom's colour.
+     * Single: one stick. Double: two thinner sticks side by side, triple: three. Aromatic: a stick
+     * and a thin dashed one beside it. "Beside" is in the plane of the bond and a neighbouring atom. */
+    for (int bnd = 0; bnd < s->nbond; bnd++) {
+        int i = s->bond[2 * bnd], j = s->bond[2 * bnd + 1];
+        int hi = m->elem[i][0] == 'H' && !m->elem[i][1], hj = m->elem[j][0] == 'H' && !m->elem[j][1];
+        if ((hi || hj) && !show_h) continue;
+        float a[3] = {POS(i, 0), POS(i, 1), POS(i, 2)}, b[3] = {POS(j, 0), POS(j, 1), POS(j, 2)};
+        float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (len < 1e-3f) continue;
+        float ci[3], cj[3];
+        elem_color(m->elem[i], !s->ligand_only, ci);
+        elem_color(m->elem[j], !s->ligand_only, cj);
+        int o = s->order ? s->order[bnd] : 1;
+        float p[3] = {0, 0, 0};
+        if (o > 1) {
+            /* a heavy neighbour of either end, not the other end */
+            int nb = -1;
+            for (int q = 0; q < s->nbond && nb < 0; q++) {
+                int x = s->bond[2 * q], y = s->bond[2 * q + 1], other = -1;
+                if (x == i && y != j) other = y; else if (y == i && x != j) other = x;
+                else if (x == j && y != i) other = y; else if (y == j && x != i) other = x;
+                if (other >= 0 && !(m->elem[other][0] == 'H' && !m->elem[other][1])) nb = other;
+            }
+            float v[3] = {1, 0, 0};
+            if (nb >= 0) { v[0] = POS(nb, 0) - a[0]; v[1] = POS(nb, 1) - a[1]; v[2] = POS(nb, 2) - a[2]; }
+            float t = (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / (len * len);
+            for (int c = 0; c < 3; c++) p[c] = v[c] - t * d[c];
+            float pl = sqrtf(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            if (pl < 1e-4f) { p[0] = -d[1]; p[1] = d[0]; p[2] = 0; pl = sqrtf(p[0] * p[0] + p[1] * p[1]); }
+            for (int c = 0; c < 3; c++) p[c] /= pl;
+        }
+        /* up to three sticks: offset along p, radius, dashed, shortened at both ends */
+        float offs[3], rad[3];
+        int dash[3], ns = 0;
+        float shrink[3];
+        if (o == 2) { offs[0] = -0.13f; offs[1] = 0.13f; rad[0] = rad[1] = 0.10f; dash[0] = dash[1] = 0; shrink[0] = shrink[1] = 0; ns = 2; }
+        else if (o == 3) { offs[0] = 0; offs[1] = -0.17f; offs[2] = 0.17f; rad[0] = rad[1] = rad[2] = 0.08f; dash[0] = dash[1] = dash[2] = 0; shrink[0] = shrink[1] = shrink[2] = 0; ns = 3; }
+        else if (o == 4) { offs[0] = 0; offs[1] = 0.27f; rad[0] = STICK_RADIUS; rad[1] = 0.065f; dash[0] = 0; dash[1] = 1; shrink[0] = 0; shrink[1] = 0.18f; ns = 2; }
+        else { offs[0] = 0; rad[0] = STICK_RADIUS; dash[0] = 0; shrink[0] = 0; ns = 1; }
+        for (int st = 0; st < ns && *ncyl < ccap; st++) {
+            float u0 = shrink[st], u1 = 1 - shrink[st];
+            cyl_t *cy = &cout[(*ncyl)++];
+            cy->ax = a[0] + u0 * d[0] + offs[st] * p[0]; cy->ay = a[1] + u0 * d[1] + offs[st] * p[1]; cy->az = a[2] + u0 * d[2] + offs[st] * p[2];
+            cy->bx = a[0] + u1 * d[0] + offs[st] * p[0]; cy->by = a[1] + u1 * d[1] + offs[st] * p[1]; cy->bz = a[2] + u1 * d[2] + offs[st] * p[2];
+            cy->r = rad[st];
+            cy->dash = (float)dash[st];
+            cy->car = ci[0]; cy->cag = ci[1]; cy->cab = ci[2];
+            cy->cbr = cj[0]; cy->cbg = cj[1]; cy->cbb = cj[2];
+            cy->pad0 = cy->pad1 = 0;
+        }
     }
     if (show_tube)
         for (int r = 0; r + 1 < m->nres; r++) {
@@ -348,13 +535,88 @@ static int scene_build(const scene_t *s, double fpos, inst_t *out, int cap, int 
                                     ci[0] + u * (cj[0] - ci[0]), ci[1] + u * (cj[1] - ci[1]), ci[2] + u * (cj[2] - ci[2]), 1};
             }
         }
+    {   /* extent of what was drawn */
+        float r2 = 0;
+        for (int q = 0; q < k; q++) { float d2 = out[q].x * out[q].x + out[q].y * out[q].y + out[q].z * out[q].z; if (d2 > r2) r2 = d2; }
+        frame_radius = sqrtf(r2) + 1.5f;
+    }
 #undef POS
     return k;
+}
+
+/* ---------------------------------------------------------------- file mode: following a running sander */
+/* --follow TRAJ --natoms N: the topology is the first --file (a PDB of the solute, as tleap's
+ * savepdb writes it); TRAJ is the ASCII mdcrd sander is writing (10F8.3, a box line after each
+ * frame). New complete frames are appended to the scene; the solute is the first atoms of each. */
+typedef struct {
+    const char *path;
+    FILE *f;
+    long natoms_total;
+    int lines_per_frame, got_title;
+    char *pend;
+    size_t plen, pcap;
+    float *frame;   /* one frame being parsed: the solute's coordinates */
+    long vals;      /* values read into the current frame */
+    int lines;      /* lines read of the current frame */
+} follow_t;
+
+static int follow_poll(follow_t *fw, scene_t *sc) {
+    if (!fw->f) {
+        fw->f = fopen(fw->path, "r");
+        if (!fw->f) return 0;
+        long v = 3 * fw->natoms_total;
+        fw->lines_per_frame = (int)((v + 9) / 10) + 1;          /* coordinates, then the box line */
+        fw->frame = malloc(sizeof(float) * 3 * (size_t)sc->m.natoms);
+    }
+    char buf[1 << 16];
+    size_t n;
+    int added = 0;
+    while ((n = fread(buf, 1, sizeof buf, fw->f)) > 0) {
+        if (fw->plen + n + 1 > fw->pcap) { fw->pcap = (fw->plen + n + 1) * 2; fw->pend = realloc(fw->pend, fw->pcap); }
+        memcpy(fw->pend + fw->plen, buf, n);
+        fw->plen += n;
+    }
+    clearerr(fw->f);
+    /* complete lines only */
+    size_t start = 0;
+    for (size_t i = 0; i < fw->plen; i++) {
+        if (fw->pend[i] != '\n') continue;
+        const char *l = fw->pend + start;
+        size_t len = i - start;
+        start = i + 1;
+        if (!fw->got_title) { fw->got_title = 1; continue; }
+        fw->lines++;
+        if (fw->lines < fw->lines_per_frame) {
+            for (size_t p = 0; p + 8 <= len; p += 8) {
+                if (fw->vals < 3L * sc->m.natoms) {
+                    char num[9];
+                    memcpy(num, l + p, 8); num[8] = 0;
+                    fw->frame[fw->vals] = (float)atof(num);
+                }
+                fw->vals++;
+            }
+            continue;
+        }
+        /* the box line closes the frame */
+        mol_t *m = &sc->m;
+        size_t per = (size_t)m->natoms * 3;
+        m->xyz = realloc(m->xyz, sizeof(float) * per * (size_t)(m->nframes + 1));
+        memcpy(&m->xyz[per * (size_t)m->nframes], fw->frame, sizeof(float) * per);
+        m->nframes++;
+        fw->vals = 0;
+        fw->lines = 0;
+        added++;
+    }
+    memmove(fw->pend, fw->pend + start, fw->plen - start);
+    fw->plen -= start;
+    return added;
 }
 
 /* ---------------------------------------------------------------- main */
 int main(int argc, char **argv) {
     int card = 0, nfiles = 0, temp = 0, rep = 0;
+    const char *follow_path = NULL;
+    long follow_natoms = 0;
     double seconds = 0, fps_traj = 0;
     const char *snap = NULL;
     const char *files[256];
@@ -368,6 +630,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--temp") && i + 1 < argc) temp = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--replica") && i + 1 < argc) rep = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fps") && i + 1 < argc) fps_traj = atof(argv[++i]);
+        else if (!strcmp(argv[i], "--follow") && i + 1 < argc) follow_path = argv[++i];
+        else if (!strcmp(argv[i], "--natoms") && i + 1 < argc) follow_natoms = atol(argv[++i]);
+        else if (!strcmp(argv[i], "--bonds") && i + 1 < argc) bonds_mol2 = argv[++i];
         else if (!strcmp(argv[i], "--file")) { while (i + 1 < argc && argv[i + 1][0] != '-' && nfiles < 256) files[nfiles++] = argv[++i]; }
         else {
             fprintf(stderr, "usage: amview [--card N] [--seconds S] [--radius A] [--snap FILE]\n"
@@ -380,6 +645,9 @@ int main(int argc, char **argv) {
     const volatile struct mdframe_head *fh = NULL;
     char path[64] = "";
     scene_t sc;
+    follow_t fw;
+    memset(&fw, 0, sizeof fw);
+    int64_t follow_t0 = 0;
     memset(&sc, 0, sizeof sc);
     int cur = 0;
     if (filemode) {
@@ -387,6 +655,12 @@ int main(int argc, char **argv) {
         if (mol_mdcath_list(files[0], sc.temps, &sc.ntemps) == 0)
             for (int k = 0; k < sc.ntemps; k++) if (sc.temps[k] == temp) sc.ti = k;
         if (scene_load(&sc, files[0])) return 1;
+        if (follow_path) {
+            if (follow_natoms < sc.m.natoms) { fprintf(stderr, "amview: --follow needs --natoms (the whole system, at least %d)\n", sc.m.natoms); return 2; }
+            fw.path = follow_path;
+            fw.natoms_total = follow_natoms;
+            sc.m.dt_ns = 0.0002; /* frames every 0.2 ps (scripts/lurasidone-md.sh) */
+        }
     } else {
         if (card == 0) snprintf(path, sizeof path, "/dev/shm/phi-hostmem");
         else snprintf(path, sizeof path, "/dev/shm/phi-hostmem-%d", card);
@@ -414,11 +688,12 @@ int main(int argc, char **argv) {
     glfwSetScrollCallback(win, on_scroll);
     printf("amview: %s, %s, %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION), filemode ? "file mode" : path);
 
-    GLuint patom = program(atom_vs, atom_fs), pbox = program(box_vs, box_fs);
-    GLuint vao, ssbo, q[NQ];
+    GLuint patom = program(atom_vs, atom_fs), pbox = program(box_vs, box_fs), pcyl = program(cyl_vs, cyl_fs);
+    GLuint vao, ssbo, ssbo_cyl, q[NQ];
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
     glGenBuffers(1, &ssbo);
+    glGenBuffers(1, &ssbo_cyl);
     glGenQueries(NQ, q);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
@@ -426,6 +701,9 @@ int main(int argc, char **argv) {
 
     size_t icap = 0;
     inst_t *inst = NULL;
+    size_t ccap = 0;
+    cyl_t *cyls = NULL;
+    int ncyl = 0;
     int ninst = 0;
     uint64_t have = 0, step = 0;
     float box[3] = {0, 0, 0};
@@ -456,16 +734,27 @@ int main(int argc, char **argv) {
             if (rep_switch && sc.ntemps) { sc.rep = (sc.rep + 1) % 5; reload = 1; }
             temp_switch = rep_switch = 0;
             if (reload) { if (scene_load(&sc, files[cur])) glfwSetWindowShouldClose(win, 1); playhead = 0; }
+            if (fw.path && now_ns() - follow_t0 > 500000000ll) {
+                follow_t0 = now_ns();
+                int got = follow_poll(&fw, &sc);
+                if (got && sc.m.nframes - 1 - playhead > 25) playhead = sc.m.nframes - 6; /* fell behind: jump close to live */
+            }
             int nf = sc.m.nframes;
             double rate = fps_traj > 0 ? fps_traj : (sc.m.dt_ns > 0 ? 10.0 : 2.0);
             if (nf > 1 && !paused) playhead += dt * rate * speed;
             if (file_step) { playhead = floor(playhead) + file_step; file_step = 0; }
-            if (nf > 1) { while (playhead >= nf - 1) playhead -= nf - 1; while (playhead < 0) playhead += nf - 1; }
+            if (fw.path) { if (playhead > nf - 1) playhead = nf - 1; if (playhead < 0) playhead = 0; } /* live: never wrap */
+            else if (nf > 1) { while (playhead >= nf - 1) playhead -= nf - 1; while (playhead < 0) playhead += nf - 1; }
             else playhead = 0;
-            size_t need = (size_t)sc.m.natoms + (size_t)sc.m.nres * TUBE_STEPS + 16;
+            size_t need = (size_t)sc.m.natoms + (size_t)sc.m.nres * TUBE_STEPS + (size_t)sc.nbond * 64 + 16;
             if (need > icap) { icap = need; inst = realloc(inst, icap * sizeof *inst); }
-            ninst = scene_build(&sc, playhead, inst, (int)icap, ssc);
-            view_r = sc.radius;
+            if ((size_t)sc.nbond * 3 + 8 > ccap) { ccap = (size_t)sc.nbond * 3 + 8; cyls = realloc(cyls, ccap * sizeof *cyls); }
+            ninst = scene_build(&sc, playhead, inst, (int)icap, cyls, (int)ccap, &ncyl, ssc);
+            /* the camera follows the drawn extent, smoothed (a drug in water changes shape) */
+            static float view_r_s = 0;
+            if (view_r_s <= 0 || reload) view_r_s = frame_radius;
+            view_r_s += (frame_radius - view_r_s) * (float)(dt * 1.5 < 1 ? dt * 1.5 : 1);
+            view_r = view_r_s;
         } else {
             /* the newest whole frame from the card, if it is new */
             if (fh->magic == MDFRAME_MAGIC && fh->latest != have && fh->latest != 0) {
@@ -495,8 +784,44 @@ int main(int argc, char **argv) {
             view_r = bmax > 0 ? bmax * 0.87f : 100;
         }
 
-        mat4 view = orbit(yaw, pitch, dist_scale * view_r * 1.1f);
-        mat4 proj = perspective(0.7854f, (float)WIDTH / HEIGHT, 0.5f, 40.0f * view_r);
+        /* a lone drug: narrow field of view and the camera further back, so near atoms do not balloon */
+        float fov = filemode && sc.ligand_only ? 0.4363f : 0.7854f;
+        float dist = dist_scale * view_r * 1.1f * (0.41421f / tanf(fov / 2));
+        float aim[2] = {0, 0}; /* view-space offset of the point the camera centres */
+        if (filemode && sc.ligand_only && ninst) {
+            /* exact perspective fit at this rotation: an atom at offset (x, y) and depth z toward the
+             * camera stays inside 92 % of the frame when D >= (|y| + r) / tan + z, and likewise for x
+             * against the width; D is the largest over all atoms, smoothed */
+            mat4 rot = orbit(yaw, pitch, 1.0f);
+            float th = tanf(fov / 2) * 0.92f, want = 0;
+            float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+            for (int q = 0; q < ninst; q++) {   /* the projected box: aim at its centre, not the centroid */
+                const inst_t *a = &inst[q];
+                float vx = rot.m[0] * a->x + rot.m[4] * a->y + rot.m[8] * a->z;
+                float vy = rot.m[1] * a->x + rot.m[5] * a->y + rot.m[9] * a->z;
+                x0 = fminf(x0, vx - a->r); x1 = fmaxf(x1, vx + a->r); y0 = fminf(y0, vy - a->r); y1 = fmaxf(y1, vy + a->r);
+            }
+            float mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+            for (int q = 0; q < ninst; q++) {
+                const inst_t *a = &inst[q];
+                float vx = rot.m[0] * a->x + rot.m[4] * a->y + rot.m[8] * a->z - mx;
+                float vy = rot.m[1] * a->x + rot.m[5] * a->y + rot.m[9] * a->z - my;
+                float vz = rot.m[2] * a->x + rot.m[6] * a->y + rot.m[10] * a->z; /* toward the camera */
+                float need = fmaxf((fabsf(vy) + a->r) / th, (fabsf(vx) + a->r) / (th * (float)WIDTH / HEIGHT)) + vz + a->r;
+                if (need > want) want = need;
+            }
+            static float aim_x, aim_y;
+            float g = (float)(dt * 2.0 < 1 ? dt * 2.0 : 1);
+            aim_x += (mx - aim_x) * g; aim_y += (my - aim_y) * g;
+            aim[0] = aim_x; aim[1] = aim_y;
+            static float fit = 0;
+            fit = fit <= 0 ? want : fit + (want - fit) * (float)(dt * 2.0 < 1 ? dt * 2.0 : 1);
+            dist = fit * dist_scale / 2.3f; /* the wheel still zooms: 2.3 is the ligand default */
+        }
+        mat4 view = orbit(yaw, pitch, dist);
+        view.m[12] -= aim[0];
+        view.m[13] -= aim[1];
+        mat4 proj = perspective(fov, (float)WIDTH / HEIGHT, 0.5f, dist + 40.0f * view_r);
         glBeginQuery(GL_TIME_ELAPSED, q[qn % NQ]);
         glViewport(0, 0, WIDTH, HEIGHT);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -506,8 +831,19 @@ int main(int argc, char **argv) {
             glUseProgram(patom);
             glUniformMatrix4fv(glGetUniformLocation(patom, "view"), 1, GL_FALSE, view.m);
             glUniformMatrix4fv(glGetUniformLocation(patom, "proj"), 1, GL_FALSE, proj.m);
+            glUniform2f(glGetUniformLocation(patom, "cue"), dist - view_r * 0.6f, dist + view_r * 1.4f);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)ninst);
+            if (filemode && ncyl) {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_cyl);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, (GLsizeiptr)((size_t)ncyl * sizeof *cyls), cyls, GL_STREAM_DRAW);
+                glUseProgram(pcyl);
+                glUniformMatrix4fv(glGetUniformLocation(pcyl, "view"), 1, GL_FALSE, view.m);
+                glUniformMatrix4fv(glGetUniformLocation(pcyl, "proj"), 1, GL_FALSE, proj.m);
+                glUniform2f(glGetUniformLocation(pcyl, "cue"), dist - view_r * 0.6f, dist + view_r * 1.4f);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo_cyl);
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)ncyl);
+            }
             if (!filemode) {
                 glUseProgram(pbox);
                 glUniformMatrix4fv(glGetUniformLocation(pbox, "view"), 1, GL_FALSE, view.m);
@@ -591,5 +927,6 @@ int main(int argc, char **argv) {
     glfwTerminate();
     free(stage);
     free(inst);
+    free(cyls);
     return 0;
 }

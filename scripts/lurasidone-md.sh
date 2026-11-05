@@ -1,6 +1,7 @@
 #!/bin/bash
 # lurasidone-md.sh: lurasidone in water with AmberTools, on the host (G0 build).
-#   1. PubChem CID 213046 3D conformer, basic piperazine N protonated (tools/sdf-protonate.c), +1
+#   1. an SDF (default: PubChem CID 213046 3D conformer, basic piperazine N protonated by
+#      tools/sdf-protonate.c, +1); STATE, SDF, CHARGE, PROTONATE select another state or start
 #   2. antechamber: GAFF2 atom types, AM1-BCC charges (sqm), residue LUR; parmchk2: missing terms
 #   3. tleap: TIP3P truncated octahedron, 12 A buffer, Cl- to neutralise
 #   4. sander.MPI (8 ranks): minimise, heat to 310 K with the drug restrained, 100 ps NpT, then
@@ -11,7 +12,12 @@ set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 S=$R/input/dl/ambertools26/src/ambertools26_src
 B=${B:-$HOME/.cache/intel-phi-ambermd/g0}
+STATE=${STATE:-plus1-pubchem}
+SDF=${SDF:-$R/input/dl/proteins/drugs/lurasidone.sdf}
+CHARGE=${CHARGE:-1}
+PROTONATE=${PROTONATE:-1}   # 1: add the proton (tools/sdf-protonate.c); 0: the SDF already has the intended state
 W=${W:-$HOME/.cache/intel-phi-ambermd/lurasidone}
+[ "$STATE" = plus1-pubchem ] || W=$HOME/.cache/intel-phi-ambermd/lurasidone-$STATE
 PROD_PS=${PROD_PS:-200}
 RANKS=${RANKS:-8}
 mkdir -p "$W" "$R/logs/lurasidone" "$R/out"
@@ -27,11 +33,11 @@ export AMBERHOME=$H
 
 gcc -std=gnu11 -O2 -Wall -Wextra -Werror "$R/tools/sdf-protonate.c" -o "$R/out/sdf-protonate" -lm
 gcc -std=gnu11 -O2 -Wall -Wextra -Werror "$R/tools/mdcrd2pdb.c" -o "$R/out/mdcrd2pdb"
-"$R/out/sdf-protonate" "$R/input/dl/proteins/drugs/lurasidone.sdf" lurH.sdf
+if [ "$PROTONATE" = 1 ]; then "$R/out/sdf-protonate" "$SDF" lurH.sdf; else cp "$SDF" lurH.sdf; fi
 
 if [ ! -s lur.frcmod ]; then
     /usr/bin/time -f 'antechamber %e s' "$H/bin/antechamber" -i lurH.sdf -fi mdl -o lur.mol2 -fo mol2 \
-        -c bcc -nc 1 -at gaff2 -rn LUR -pf y > antechamber.log 2>&1
+        -c bcc -nc "$CHARGE" -at gaff2 -rn LUR -pf y > antechamber.log 2>&1
     "$H/bin/parmchk2" -i lur.mol2 -f mol2 -o lur.frcmod -s gaff2
 fi
 grep -c '^ATTN' lur.frcmod | sed 's/^/parmchk2 ATTN lines (guessed parameters needing review): /' || true
@@ -88,5 +94,5 @@ M -O -i prod.in -p lur_wat.prmtop -c npt.rst -r prod.rst -o prod.out -x prod.mdc
 awk -v a="$t0" -v b="$(date +%s.%N)" -v p="$PROD_PS" 'BEGIN{printf "production: %d ps in %.1f s = %.2f ns/day\n", p, b-a, p*1e-3/((b-a)/86400)}'
 nsolute=$(grep -c '^HETATM\|^ATOM' lur.pdb)
 "$R/out/mdcrd2pdb" lur.pdb "$(sed -n 7p lur_wat.prmtop | awk '{print $1}')" "$nsolute" prod.mdcrd lurasidone-md.pdb
-cp min.out heat.out npt.out prod.out antechamber.log leap.log lur.frcmod "$R/logs/lurasidone/"
+mkdir -p "$R/logs/lurasidone/$STATE"; cp min.out heat.out npt.out prod.out antechamber.log leap.log lur.frcmod "$R/logs/lurasidone/$STATE/"
 echo "trajectory: $W/lurasidone-md.pdb"
