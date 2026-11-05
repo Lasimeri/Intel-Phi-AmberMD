@@ -1,8 +1,10 @@
 # Plan: FOSS AmberTools molecular dynamics on one Xeon Phi 7120A
 
-State on 2026-11-05: plan only. Nothing has been built for the card and nothing has run on
-a card. Every performance figure below is either a cited measurement by someone else or
-arithmetic, and is labelled. Source tree facts were read from the checksummed tarball.
+State on 2026-11-05 13:10: G0 passed on the host (results/2026-11-05-g0-host.md). One C probe has
+run on the card (G3 team fork-join, results/2026-11-05-g3-team.md). sander has not been built for
+the card: G1 (Flang) is building. Figures below are measurements where a results file is cited,
+otherwise cited measurements by others or arithmetic, and are labelled. Source tree facts were
+read from the checksummed tarball.
 
 Order of targets: one 7120A first (61 cores, 244 threads, 1.238 GHz, 16 GB GDDR5, PCIe Gen2
 x8). A rack of 3120A cards comes after the 7120A gates pass (stage G8) and is not started here.

@@ -7,7 +7,11 @@ no MPSS and no MKL. Compiler: the patched LLVM from
 
 First target: one Xeon Phi 7120A. Later target: a rack of 3120A cards.
 
-**Status: plan only. Nothing has been built for the card and nothing has run on a card.**
+**Status (2026-11-05):** G0 passed: host sander passes the constant-pH tests and sets the bar,
+4.659 ns/day on a 49,910-atom PrP box (8 ranks, Ryzen 5800X). G3 probe ran on the 7120A: a
+120-thread fork-join costs 8.37 us with an 8-ary gather tree, 1.41 ms with pthread barriers.
+sander does not run on the card yet: G1, a Fortran compiler for KNC (Flang), is building.
+Results: [docs/results](docs/results).
 Read [docs/plan.md](docs/plan.md).
 
 `pmemd` is not used and its source must never be added here: the Amber licence forbids
