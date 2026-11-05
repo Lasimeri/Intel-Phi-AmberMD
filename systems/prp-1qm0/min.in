@@ -1,0 +1,5 @@
+minimize, protein held
+ &cntrl
+  imin=1, maxcyc=1000, ncyc=500, cut=8.0, ntb=1, ntr=1,
+  restraint_wt=10.0, restraintmask='!:WAT & !:Na+', ntpr=200,
+ /

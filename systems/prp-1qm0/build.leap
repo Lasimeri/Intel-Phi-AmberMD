@@ -1,0 +1,10 @@
+source leaprc.protein.ff14SB
+source leaprc.water.tip3p
+loadOff @TIP3PBOX@
+m = loadPdb prp.pdb
+bond m.179.SG m.214.SG
+addIons m Na+ 0
+solvateoct m TIP3PBOX 19
+charge m
+saveAmberParm m prp.prmtop prp.inpcrd
+quit

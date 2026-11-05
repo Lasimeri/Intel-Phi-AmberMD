@@ -114,16 +114,41 @@ Published anchors:
 | Ma 2015 | Inter-intra hybrid vectorization 1.25x force, 1.40x list over auto-vectorized code on 7120P | Kernel shape |
 | GROMACS forum 2020 | Forum reply: modern CPUs are faster than Xeon Phi | The host baseline G0 will quantify this |
 
-Targets: beat 6.57 ns/day with the card alone, then 20 ns/day. Volume check: 1.25 us takes 190
+Targets: beat the host, 4.659 ns/day measured at G0 (best of 8 ranks on the 5800X), and the 6.57 ns/day
+estimate, then 20 ns/day. Volume check: 1.25 us takes 190
 days at 6.57 ns/day, 62.5 days at 20 ns/day, on one card. The 20 ns/day target is an estimate
 that no measurement backs yet.
+
+## 5a. Card support: a patch series, never edits in place
+
+AmberTools has no notion of this card's software stack: no `knc` CPU, no `knc-cc` and
+`knc.cfg`, a musl sysroot instead of glibc, x87-only scalar FP, no MPSS, and programs reach the
+card through `phi put` and `phi run`. Support goes in as numbered patches against the pinned
+tarball (`patches/ambertools/SERIES`, applied by a script that refuses a tree whose checksum
+differs), plus files that live only in this repository. Survey of the source on 2026-11-05:
+
+| What | Found in AmberTools26 | Patch or file |
+|---|---|---|
+| Cross build | `CROSSCOMPILE` option already exists for `GNU`, `CLANG`, `MANUAL`, needs `TARGET_TRIPLE` and `CMAKE_FIND_ROOT_PATH` (`cmake/AmberCompilerConfig.cmake`) | Repository file `cmake/knc-toolchain.cmake`: `knc-cc --config knc.cfg`, Flang with `-march=knc`, triple `x86_64-unknown-linux-musl`, root = the stack sysroot |
+| Compiler identity | `ALL_COMPILER_VALUES` has no Flang; Fortran flags keyed on `GNU`, `Intel`, `PGI` | Patch: a `KNC` compiler value, LLVMFlang flag branch |
+| Host tuning | `-mtune=native` added for GNU C, C++ and Fortran (`cmake/CompilerFlags.cmake` lines 76, 118, 154) | Patch: never for KNC |
+| Configure-time runs | `check_fortran_source_runs` uses `try_run`; `TargetArch.cmake` try_run only compiles | Repository file `scripts/phi-emu.sh` as `CMAKE_CROSSCOMPILING_EMULATOR`: puts the probe on the card and runs it, so answers come from the card, not guesses |
+| glibc, SSE, inline asm | 0 files in sander, sqm, pbsa, sff, dlfind, lib match `__GLIBC__`, `execinfo`, `mallinfo`, `fpu_control`, `feenableexcept`, `asm`, `cpuid`, `_mm_*`, `xmmintrin`, `__SSE` | none needed so far |
+| NetCDF 4.6.1 and netcdf-fortran 4.4.4 | built in-tree (`INTERNAL`) by autotools | Patch or prebuilt: configure with `--host=x86_64-unknown-linux-musl` against the stack sysroot |
+| Shell-outs | `system('rm ...')`, `system('mv ...')` only in QM/MM paths | not on the MD path; QM/MM stays disabled |
+| Tests | `Run.*` are `/bin/sh`, `dacdif` uses awk | sander runs on the card, `phi get` brings mdout back, dacdif runs on the host |
+
+Card rules that the scripts enforce, not just document: total reservation at most 12 GB, `/tmp` on
+the card is tmpfs and counts toward it; 120 threads on cores 0 to 59, core 60 left alone; one
+`phi run` at a time (it holds the control socket); no SSH polling of the card; card timestamps are
+never used (its clock is not the host's).
 
 ## 6. Stages and gates
 
 Each stage ends with a measured result in `docs/results/`, committed and pushed. A failed gate is
 recorded as failed. Card stages need the card to be free.
 
-### G0: host reference (no card)
+### G0: host reference (no card): PASSED 2026-11-05, see results/2026-11-05-g0-host.md
 Build serial `sander` with gfortran on the host from the pinned tarball, minimal CMake (`-DMPI=FALSE
 -DCUDA=FALSE -DDOWNLOAD_MINICONDA=FALSE`, no Python). 14 jobs at most.
 - Gate: `test/cnstph/implicit` and `test/cnstph/explicit` pass `dacdif` against the shipped
@@ -185,7 +210,8 @@ path. Write `mkcpin` in C from the reference data in `titratable_residues.py`.
   several pH values compared to the tutorial and to experiment.
 
 ### G7: PrP pilot on the 7120A
-Build PDB 1QM0 (residues 90-231) with tleap, solvate, equilibrate at pH 7, run pH 2 replicates, then
+Build the model with tleap: PDB 1QM0 holds residues 125-228 only, so residues 90-124 come from 2PRP
+as the thesis did (structures 6 and 9). Solvate, equilibrate at pH 7, run pH 2 replicates, then
 pH 7 jumps from early and late frames, the protocol of section 2.
 - Gate: stable pH 7 control in RMSD and DSSP. Physical conclusions only with replicate counts stated.
 
