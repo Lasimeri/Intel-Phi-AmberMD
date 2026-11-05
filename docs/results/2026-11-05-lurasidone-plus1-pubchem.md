@@ -19,3 +19,9 @@ Raw outputs: logs/lurasidone/ (min, heat, npt, prod .out, antechamber.log, leap.
 The kit's lowest-energy neutral and +1 conformers (input/dl/lurasidone-kit) run next as states
 neutral-kit and plus1-kit. This is the free drug in water, not a receptor complex: no
 experimental lurasidone pose exists in the PDB (docs/datasets.md).
+
+## Neutral state from the kit (stopped by request, 2026-11-05 14:44)
+`STATE=neutral-kit SDF=<kit>/inputs/lurasidone_neutral.sdf CHARGE=0 PROTONATE=0`: antechamber GAFF2/AM1-BCC
+on the kit's lowest-energy neutral conformer, 71 atoms; tleap 5,894 atoms. Minimisation and heating
+finished; the run was stopped during the 100 ps NpT stage, before production. The +1 run from the
+kit's conformer did not start.
